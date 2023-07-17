@@ -1,0 +1,24 @@
+data:
+  data_name: 'test'
+  dataset:  # test dataset
+    name: pl
+    path: ./data/crossdocked_pocket10
+    split: ./data/split_by_name.pt
+
+model:
+    checkpoint: ./logs_train/train_esm_2023_07_14__10_22_11/checkpoints/70000.pt
+sample:
+  seed: 2020
+  mask_init: True
+  num_samples: 100
+  beam_size: 500
+  max_steps: 50
+  threshold:
+    focal_threshold: 0.5
+    pos_threshold: 0.25
+    element_threshold: 0.3
+    hasatom_threshold: 0.6
+    bond_threshold: 0.4
+
+esm:
+  feature_dir: /home/yinxia/blob1/v-weizhan/fasta_feature/esm2_t36_3B_UR50D

@@ -1,3 +1,4 @@
+import csv
 import os
 import pickle
 import lmdb
@@ -63,9 +64,31 @@ class PocketLigandPairDataset(Dataset):
             index = pickle.load(f)
 
         num_skipped = 0
+
+        # open csv file to check the status
+        num_status_error, num_key_error = 0, 0
+        data_status = {}
+        status_path = "./data/fasta/crossdocked_data_status.csv"
+        with open(status_path, newline='', encoding='utf-8') as csvfile:
+            reader = csv.reader(csvfile)
+            next(reader, None)
+            for row in reader:
+                protein_file, ligand_file, subdir, status = row[0], row[1], row[2], row[8]
+                pocket_filename = f"{subdir}/{protein_file}"
+                ligand_filename = f"{subdir}/{ligand_file}"
+                data_status[(pocket_filename, ligand_filename)] = status
+        
         with db.begin(write=True, buffers=True) as txn:
             for i, (pocket_fn, ligand_fn, _, rmsd_str) in enumerate(tqdm(index)):
                 if pocket_fn is None: continue
+                if (pocket_fn, ligand_fn) not in data_status.keys():
+                    num_key_error += 1
+                    print('Key error, skipping (%d) %s' % (num_key_error, ligand_fn, ))
+                    continue
+                if data_status[(pocket_fn, ligand_fn)] != "Pass":
+                    num_status_error += 1
+                    print('Status error, skipping (%d) %s' % (num_status_error, ligand_fn, ))
+                    continue
                 try:
                     pocket_dict = PDBProtein(os.path.join(self.raw_path, pocket_fn)).to_dict_atom()
                     ligand_dict = parse_sdf_file(os.path.join(self.raw_path, ligand_fn))
@@ -74,7 +97,16 @@ class PocketLigandPairDataset(Dataset):
                         ligand_dict=torchify_dict(ligand_dict),
                     )
                     data.protein_filename = pocket_fn
+                    data.protein_pdb_id = pocket_fn.split("/")[1].split("_")[0]
                     data.ligand_filename = ligand_fn
+                    # with open("./input_data.txt", "w") as fw:
+                    #     for k, v in data:
+                    #         if isinstance(v, torch.Tensor):
+                    #             print(f"{k}({v.size()}): {v}", file=fw)
+                    #         elif isinstance(v, list):
+                    #             print(f"{k}({len(v)}): {v}", file=fw)
+                    #         else:
+                    #             print(f"{k}: {v}", file=fw)
                     txn.put(
                         key = str(i).encode(),
                         value = pickle.dumps(data)
@@ -83,6 +115,7 @@ class PocketLigandPairDataset(Dataset):
                     num_skipped += 1
                     print('Skipping (%d) %s' % (num_skipped, ligand_fn, ))
                     continue
+        print(f"| Num_skipped {num_skipped} | Num_key_error {num_key_error} | Num_status_error {num_status_error} |")
         db.close()
 
     def _precompute_name2id(self):
@@ -111,7 +144,19 @@ class PocketLigandPairDataset(Dataset):
         assert data.protein_pos.size(0) > 0
         if self.transform is not None:
             data = self.transform(data)
-        return data
+        # fw1 = open("./transformed_data.txt", "w")
+        # fw2 = open("./transformed_data_key.txt", "w")
+        # for k, v in data:
+        #     if isinstance(v, torch.Tensor):
+        #         print(f"{k}({v.size()}): {v}", file=fw1)
+        #     elif isinstance(v, list):
+        #         print(f"{k}({len(v)}): {v}", file=fw1)
+        #     else:
+        #         print(f"{k}: {v}", file=fw1)
+        #     print(f"{k}", file=fw2)
+        # fw1.close()
+        # fw2.close()
+        return data # type(data) = utils.data.ProteinLigandData
         
 
 if __name__ == '__main__':

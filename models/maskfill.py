@@ -8,12 +8,13 @@ from .common import *
 from .embedding import AtomEmbedding
 from .frontier import FrontierLayerVN
 from .position import PositionPredictor
+from .esm_feature import Insert_esm_feature
 # from .debug import check_true_bonds_len, check_pred_bonds_len
 from utils.misc import unique
 
 class MaskFillModelVN(Module):
 
-    def __init__(self, config, num_classes, num_bond_types, protein_atom_feature_dim, ligand_atom_feature_dim):
+    def __init__(self, config, num_classes, num_bond_types, protein_atom_feature_dim, ligand_atom_feature_dim, esm_feature_dir, use_esm):
         super().__init__()
         self.config = config
         self.num_bond_types = num_bond_types
@@ -21,6 +22,8 @@ class MaskFillModelVN(Module):
         self.emb_dim = [config.hidden_channels, config.hidden_channels_vec]
         self.protein_atom_emb = AtomEmbedding(protein_atom_feature_dim, 1, *self.emb_dim)
         self.ligand_atom_emb = AtomEmbedding(ligand_atom_feature_dim, 1, *self.emb_dim)
+
+        self.esm_feature_dir = esm_feature_dir
 
         self.encoder = get_encoder_vn(config.encoder)
         in_sca, in_vec = self.encoder.out_sca, self.encoder.out_vec
@@ -35,6 +38,9 @@ class MaskFillModelVN(Module):
 
         self.smooth_cross_entropy = SmoothCrossEntropyLoss(reduction='mean', smoothing=0.1)
         self.bceloss_with_logits = nn.BCEWithLogitsLoss()
+        # self.simple_mlp = Simple_MLP() # to merge the esm feature into it
+        self.insert_esm_feature = Insert_esm_feature(esm_feature_dir=esm_feature_dir, esm_input_dim=2560) # TODO
+        self.use_esm = use_esm
 
     def sample_init(self,
         compose_feature,
@@ -42,11 +48,18 @@ class MaskFillModelVN(Module):
         idx_protein,
         compose_knn_edge_index,
         compose_knn_edge_feature,
+
+        protein_pdb_id,
+        protein_atom_to_res_id,
+        protein_atom_to_chain,
+        protein_length,
+
         n_samples_pos=-1,
         n_samples_atom=-1
         ):
         idx_ligand = torch.empty(0).to(idx_protein)  # fake index of ligand
-        focal_resutls = self.sample_focal(compose_feature, compose_pos, idx_ligand, idx_protein, compose_knn_edge_index, compose_knn_edge_feature)
+        focal_resutls = self.sample_focal(compose_feature, compose_pos, idx_ligand, idx_protein, compose_knn_edge_index, compose_knn_edge_feature,
+                                          protein_pdb_id, protein_atom_to_res_id, protein_atom_to_chain, protein_length, )
         if focal_resutls[0]:  # has frontiers
             has_frontier, idx_frontier, p_frontier, idx_focal_in_compose, p_focal, h_compose = focal_resutls
             pos_generated, pdf_pos, idx_parent, abs_pos_mu, pos_sigma, pos_pi = self.sample_position(
@@ -74,12 +87,20 @@ class MaskFillModelVN(Module):
         compose_knn_edge_feature,
         ligand_context_bond_index,
         ligand_context_bond_type,
+
+        protein_pdb_id,
+        protein_atom_to_res_id,
+        protein_atom_to_chain,
+        protein_length,
+
         n_samples_pos=-1,
         n_samples_atom=-1,
         # n_samples=5,
         frontier_threshold=0,
         ):
-        focal_resutls = self.sample_focal(compose_feature, compose_pos, idx_ligand, idx_protein, compose_knn_edge_index, compose_knn_edge_feature, frontier_threshold=frontier_threshold)
+        focal_resutls = self.sample_focal(compose_feature, compose_pos, idx_ligand, idx_protein, compose_knn_edge_index, compose_knn_edge_feature,
+                                          protein_pdb_id, protein_atom_to_res_id, protein_atom_to_chain, protein_length, 
+                                          frontier_threshold=frontier_threshold)
         if focal_resutls[0]:  # has frontiers
             has_frontier, idx_frontier, p_frontier, idx_focal_in_compose, p_focal, h_compose = focal_resutls
             pos_generated, pdf_pos, idx_parent, abs_pos_mu, pos_sigma, pos_pi = self.sample_position(
@@ -106,6 +127,12 @@ class MaskFillModelVN(Module):
             idx_protein,
             compose_knn_edge_index,
             compose_knn_edge_feature,
+
+            protein_pdb_id, 
+            protein_atom_to_res_id, 
+            protein_atom_to_chain, 
+            protein_length,
+
             n_samples=-1,
             frontier_threshold=0,
         ):
@@ -118,6 +145,16 @@ class MaskFillModelVN(Module):
             edge_index = compose_knn_edge_index,
             edge_feature = compose_knn_edge_feature,
         )
+        if self.use_esm:
+            h_compose = self.insert_esm_feature(
+                h_compose,
+                protein_pdb_id,
+                protein_atom_to_res_id,
+                protein_atom_to_chain,
+                protein_length,
+                idx_protein,
+                h_compose[0].device,
+            )
         # # For the initial atom
         if len(idx_ligand) == 0:
             idx_ligand = idx_protein
@@ -292,7 +329,8 @@ class MaskFillModelVN(Module):
                           y_frontier,  # frontier labels
                           idx_focal,  pos_generate,  # focal and generated positions  #NOTE: idx are in comopse
                           idx_protein_all_mask, y_protein_frontier,  # surface of protein
-                          compose_knn_edge_index, compose_knn_edge_feature, real_compose_knn_edge_index,  fake_compose_knn_edge_index  # edges in compose, query-compose
+                          compose_knn_edge_index, compose_knn_edge_feature, real_compose_knn_edge_index,  fake_compose_knn_edge_index,  # edges in compose, query-compose
+                          protein_pdb_id, protein_atom_to_res_id, protein_atom_to_chain, protein_length, # idx_protein
         ):
 
         # # emebedding
@@ -304,8 +342,19 @@ class MaskFillModelVN(Module):
             pos = compose_pos,
             edge_index = compose_knn_edge_index,
             edge_feature = compose_knn_edge_feature,
-        )   # (N_p+N_l, H)    
+        )   # (N_p+N_l, H)    H=256 h_compose=list(tensor[N_p+N_l, H], tensor[N_p+N_l, 64, 3])
         # # 0: frontier atoms of protein
+        # Merge esm feature into h_compose
+        if self.use_esm:
+            h_compose = self.insert_esm_feature(
+                h_compose,
+                protein_pdb_id,
+                protein_atom_to_res_id,
+                protein_atom_to_chain,
+                protein_length,
+                idx_protein,
+                h_compose[0].device,
+            )
         y_protein_frontier_pred = self.frontier_pred(
             h_compose,
             idx_protein_all_mask

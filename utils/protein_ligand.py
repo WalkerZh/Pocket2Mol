@@ -45,6 +45,11 @@ class PDBProtein(object):
         self.atom_name = []
         self.is_backbone = []
         self.atom_to_aa_type = []
+
+        self.atom_to_res_id = []
+        self.atom_to_chain = []
+        self.protein_length = 0
+
         # Residue properties
         self.residues = []
         self.amino_acid = []
@@ -103,6 +108,9 @@ class PDBProtein(object):
             self.atom_name.append(atom['atom_name'])
             self.is_backbone.append(atom['atom_name'] in self.BACKBONE_NAMES)
             self.atom_to_aa_type.append(self.AA_NAME_NUMBER[atom['res_name']])
+            
+            self.atom_to_res_id.append(int(atom['res_id']))
+            self.atom_to_chain.append(atom['chain'])
 
             chain_res_id = '%s_%s_%d_%s' % (atom['chain'], atom['segment'], atom['res_id'], atom['res_insert_id'])
             if chain_res_id not in residues_tmp:
@@ -116,6 +124,7 @@ class PDBProtein(object):
                 assert residues_tmp[chain_res_id]['name'] == atom['res_name']
                 assert residues_tmp[chain_res_id]['chain'] == atom['chain']
                 residues_tmp[chain_res_id]['atoms'].append(next_ptr)
+        self.protein_length = len(self.element)
 
         # Process residues
         self.residues = [r for _, r in residues_tmp.items()]
@@ -147,7 +156,10 @@ class PDBProtein(object):
             'pos': np.array(self.pos, dtype=np.float32),
             'is_backbone': np.array(self.is_backbone, dtype=np.bool),
             'atom_name': self.atom_name,
-            'atom_to_aa_type': np.array(self.atom_to_aa_type, dtype=np.long)
+            'atom_to_aa_type': np.array(self.atom_to_aa_type, dtype=np.long),
+            'atom_to_res_id': np.array(self.atom_to_res_id, dtype=np.long),
+            'atom_to_chain': self.atom_to_chain,
+            'length': self.protein_length,
         }
 
     def to_dict_residue(self):

@@ -46,6 +46,12 @@ def get_init(data, model, transform, threshold):
         idx_protein = batch.idx_protein_in_compose,
         compose_knn_edge_index = batch.compose_knn_edge_index,
         compose_knn_edge_feature = batch.compose_knn_edge_feature,
+        
+        protein_pdb_id = batch.protein_pdb_id,
+        protein_atom_to_res_id = batch.protein_atom_to_res_id,
+        protein_atom_to_chain = batch.protein_atom_to_chain,
+        protein_length = batch.protein_length,
+
         n_samples_pos=-1,
         n_samples_atom=5,
     )
@@ -112,6 +118,12 @@ def get_next(data, model, transform, threshold):
         compose_knn_edge_feature = batch.compose_knn_edge_feature,
         ligand_context_bond_index = batch.ligand_context_bond_index,
         ligand_context_bond_type = batch.ligand_context_bond_type,
+
+        protein_pdb_id = batch.protein_pdb_id,
+        protein_atom_to_res_id = batch.protein_atom_to_res_id,
+        protein_atom_to_chain = batch.protein_atom_to_chain,
+        protein_length = batch.protein_length,
+
         n_samples_pos=-1,
         n_samples_atom=5
     )
@@ -154,10 +166,11 @@ def print_pool_status(pool, logger):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', type=str, default='./configs/sample.yml')
+    parser.add_argument('--config', type=str, default='./configs/sample_esm.yml')
     parser.add_argument('--outdir', type=str, default='./outputs')
-    parser.add_argument('--device', type=str, default='cuda')
+    parser.add_argument('--device', type=str, default='cuda:2')
     parser.add_argument('-i', '--data_id', type=str, default='0')
+    parser.add_argument('--use-esm', action='store_true')
     args = parser.parse_args()
 
     # check existing in output dir
@@ -219,6 +232,8 @@ if __name__ == '__main__':
         protein_atom_feature_dim = protein_featurizer.feature_dim,
         ligand_atom_feature_dim = ligand_featurizer.feature_dim,
         num_bond_types = 3,
+        esm_feature_dir = config.esm.feature_dir,
+        use_esm = args.use_esm
     ).to(args.device)
     model.load_state_dict(ckpt['model'])
 

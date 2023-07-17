@@ -46,6 +46,8 @@ class RefineData(object):
             not_H_protein = ~is_H_protein
             data.protein_atom_name = list(compress(data.protein_atom_name, not_H_protein)) 
             data.protein_atom_to_aa_type = data.protein_atom_to_aa_type[not_H_protein]
+            data.protein_atom_to_res_id = data.protein_atom_to_res_id[not_H_protein]
+            data.protein_atom_to_chain = list(compress(data.protein_atom_to_chain, not_H_protein)) 
             data.protein_element = data.protein_element[not_H_protein]
             data.protein_is_backbone = data.protein_is_backbone[not_H_protein]
             data.protein_pos = data.protein_pos[not_H_protein]
@@ -69,6 +71,8 @@ class RefineData(object):
             old_ligand_bond_index = data.ligand_bond_index[:, ind_bond_without_H]
             data.ligand_bond_index = torch.tensor(index_changer)[old_ligand_bond_index]
             data.ligand_bond_type = data.ligand_bond_type[ind_bond_without_H]
+        
+        data.protein_length = len(data.protein_atom_name)
 
         return data
 
@@ -388,73 +392,6 @@ class LigandBFSMask(object):
         data._mask = 'invbfs' if self.inverse else 'bfs'
 
         return data
-
-
-# class LigandMaskLinker(object):
-#     def __init__(self, linker_data):
-#         super().__init__()
-#         self.linker_data = linker_data
-        
-    
-#     def __call__(self, data:ProteinLigandData):
-#         # data_name = os.path.basename(data.ligand_filename)
-#         # indicator = np.where(self.sdf_names == data_name)[0][0]
-#         linker_data = self.linker_data
-#         context_idx = torch.LongTensor(linker_data['frag_idx'])
-#         masked_idx = torch.LongTensor(linker_data['linker_idx'])
-#         data.context_idx = context_idx
-#         data.masked_idx = masked_idx
-
-#         # masked ligand atom element/feature/pos.
-#         data.ligand_masked_element = data.ligand_element[masked_idx]
-#         # data.ligand_masked_feature = data.ligand_atom_feature[masked_idx]   # For Prediction. these features are chem properties
-#         data.ligand_masked_pos = data.ligand_pos[masked_idx]
-
-#         # context ligand atom elment/full features/pos. Note: num_neigh and num_valence features should be changed
-#         data.ligand_context_element = data.ligand_element[context_idx]
-#         data.ligand_context_feature_full = data.ligand_atom_feature_full[context_idx]   # For Input
-#         data.ligand_context_pos = data.ligand_pos[context_idx]
-
-#         # new bond with ligand context atoms
-#         data.ligand_context_bond_index, data.ligand_context_bond_type = subgraph(
-#             context_idx,
-#             data.ligand_bond_index,
-#             edge_attr = data.ligand_bond_type,
-#             relabel_nodes = True,
-#         )
-#         # change context atom features that relate to bonds
-#         data.ligand_context_num_neighbors = LigandCountNeighbors.count_neighbors(
-#             data.ligand_context_bond_index,
-#             symmetry=True,
-#             num_nodes = context_idx.size(0),
-#         )
-#         data.ligand_context_valence = LigandCountNeighbors.count_neighbors(
-#             data.ligand_context_bond_index,
-#             symmetry=True,
-#             valence=data.ligand_context_bond_type,
-#             num_nodes=context_idx.size(0)
-#         )
-#         data.ligand_context_num_bonds = torch.stack([
-#             LigandCountNeighbors.count_neighbors(
-#                 data.ligand_context_bond_index, 
-#                 symmetry=True, 
-#                 valence=(data.ligand_context_bond_type == i).long(),
-#                 num_nodes=context_idx.size(0),
-#             ) for i in [1, 2, 3]
-#         ], dim = -1)
-#         # re-calculate ligand_context_featrure_full
-#         data.ligand_context_feature_full = FeaturizeLigandAtom.change_features_of_neigh(
-#             data.ligand_context_feature_full,
-#             data.ligand_context_num_neighbors,
-#             data.ligand_context_valence,
-#             data.ligand_context_num_bonds
-#         )
-
-#         data.ligand_frontier = data.ligand_context_num_neighbors < data.ligand_num_neighbors[context_idx]
-
-#         data._mask = 'linker'
-#         return data
-
 
 class LigandMaskAll(LigandRandomMask):
 

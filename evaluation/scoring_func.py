@@ -10,7 +10,7 @@ from rdkit.Chem.QED import qed
 from easydict import EasyDict
 from utils.reconstruct import reconstruct_from_generated_with_edges
 from sascorer import compute_sa_score
-from docking import QVinaDockingTask
+# from docking import QVinaDockingTask
 from utils.datasets import get_dataset
 from rdkit.Chem.FilterCatalog import *
 

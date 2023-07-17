@@ -19,9 +19,10 @@ from utils.train import *
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', type=str, default='./configs/train.yml')
-    parser.add_argument('--device', type=str, default='cuda')
+    parser.add_argument('--config', type=str, default='./configs/train_esm.yml')
+    parser.add_argument('--device', type=str, default='cuda:0')
     parser.add_argument('--logdir', type=str, default='./logs')
+    parser.add_argument('--use-esm', action='store_true')
     args = parser.parse_args()
 
     # Load configs
@@ -52,17 +53,17 @@ if __name__ == '__main__':
     cfg_ctr = config.train.transform.contrastive
     contrastive_sampler = ContrastiveSample(cfg_ctr.num_real, cfg_ctr.num_fake, cfg_ctr.pos_real_std, cfg_ctr.pos_fake_std, config.model.field.knn)
     transform = Compose([
-        RefineData(),
-        LigandCountNeighbors(),
-        protein_featurizer,
-        ligand_featurizer,
-        masking,
-        composer,
+        RefineData(), # remove H atoms, update edges
+        LigandCountNeighbors(), # ligand neighbour, valence and bonds
+        protein_featurizer, # protein scalar feature
+        ligand_featurizer, # ligand scalar feature
+        masking, # mask
+        composer, # compose protein & ligand features and coords # knn graph
 
-        FocalBuilder(),
-        edge_sampler,
-        contrastive_sampler,
-    ])
+        FocalBuilder(), # focal for protein and context ***
+        edge_sampler, #  pos/neg edge
+        contrastive_sampler, # pos/neg pos
+    ]) # ***
 
     # Datasets and loaders
     logger.info('Loading dataset...')
@@ -93,6 +94,8 @@ if __name__ == '__main__':
             num_bond_types = edge_sampler.num_bond_types,
             protein_atom_feature_dim = protein_featurizer.feature_dim,
             ligand_atom_feature_dim = ligand_featurizer.feature_dim,
+            esm_feature_dir = config.esm.feature_dir,
+            use_esm=args.use_esm,
         ).to(args.device)
     print('Num of parameters is', np.sum([p.numel() for p in model.parameters()]))
 
@@ -108,6 +111,8 @@ if __name__ == '__main__':
         batch = next(train_iterator).to(args.device)
 
         compose_noise = torch.randn_like(batch.compose_pos) * config.train.pos_noise_std
+        # print(batch)
+        # print(batch.protein_length)
         loss, loss_frontier, loss_pos, loss_cls, loss_edge, loss_real, loss_fake, loss_surf = model.get_loss(
 
             pos_real = batch.pos_real,
@@ -137,6 +142,13 @@ if __name__ == '__main__':
             compose_knn_edge_feature = batch.compose_knn_edge_feature,
             real_compose_knn_edge_index = torch.stack([batch.real_compose_knn_edge_index_0, batch.real_compose_knn_edge_index_1], dim=0),
             fake_compose_knn_edge_index = torch.stack([batch.fake_compose_knn_edge_index_0, batch.fake_compose_knn_edge_index_1], dim=0),
+        
+            # esm_feature_dir = args.esm_feature_dir,
+            # protein_filename = batch.protein_filename,
+            protein_pdb_id = batch.protein_pdb_id,
+            protein_atom_to_res_id = batch.protein_atom_to_res_id,
+            protein_atom_to_chain = batch.protein_atom_to_chain,
+            protein_length = batch.protein_length,
         )
         if config.train.use_apex:
             with amp.scale_loss(loss, optimizer) as scaled_loss:
@@ -194,6 +206,11 @@ if __name__ == '__main__':
                     compose_knn_edge_feature = batch.compose_knn_edge_feature,
                     real_compose_knn_edge_index = torch.stack([batch.real_compose_knn_edge_index_0, batch.real_compose_knn_edge_index_1], dim=0),
                     fake_compose_knn_edge_index = torch.stack([batch.fake_compose_knn_edge_index_0, batch.fake_compose_knn_edge_index_1], dim=0),
+
+                    protein_pdb_id = batch.protein_pdb_id,
+                    protein_atom_to_res_id = batch.protein_atom_to_res_id,
+                    protein_atom_to_chain = batch.protein_atom_to_chain,
+                    protein_length = batch.protein_length,
                 )
                 sum_loss = sum_loss + np.array([torch.nan_to_num(l).item() for l in loss_list]) 
                 sum_n += 1

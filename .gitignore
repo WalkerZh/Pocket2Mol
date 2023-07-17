@@ -1,7 +1,9 @@
 .history/*
 __pycache__
 outputs/*
+outputs_train/*
 logs/*
+logs_train/*
 .vscode/*
 sample_for_pocket.py
 tmp/*

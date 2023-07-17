@@ -1,4 +1,4 @@
-name: Pocket2Mol
+name: Pocket2Mol_
 channels:
   - pytorch
   - pyg
